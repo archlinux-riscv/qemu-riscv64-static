@@ -1,0 +1,46 @@
+#!/bin/bash
+
+DIR=$(dirname $(readlink -f $0))
+
+if [ ! -f /.dockerenv ]; then
+    docker run --rm -ti -v "$DIR:/work" archlinux:base-devel /work/build_all
+    exit $?
+fi
+
+# At this point we're inside a docker container running as root
+cd "$DIR"
+
+if [ $(id -u) == 0 ]; then
+    rm -rf work
+    mkdir work
+    chmod 777 work
+
+    pacman -Sy
+    echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf
+
+    useradd -m build
+    echo 'build ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/build
+    su build /work/build_all
+    exit $?
+fi
+
+# At this point we're running as the `build` user
+
+set -e
+
+cd work
+cp -r ../packages/* ./
+
+cd glib2-static
+makepkg -src --noconfirm --skippgpcheck --nocheck --install
+cd ..
+
+cd pcre-static
+makepkg -src --noconfirm --skippgpcheck --nocheck --install
+cd ..
+
+cd qemu-user-static
+makepkg -src --noconfirm --skippgpcheck --nocheck --install
+
+tar xf qemu-user-static-*.pkg.*
+cp usr/bin/qemu-riscv64-static ../../
